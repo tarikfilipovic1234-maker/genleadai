@@ -27,9 +27,16 @@ from dataclasses import dataclass
 
 from app.schemas.lead import LeadFacts
 
-# "4.8 stars", "4,8★", "rated 4.5/5"
+# "4.8 stars", "4,8★", "rated 4.5/5", "4.9 rejting", "ocjena 4,7"
+#
+# Both word orders are covered because the agent writes in the language of the
+# business, and Bosnian puts the number first as often as not. The Bosnian
+# vocabulary is not optional here: a rating claim that slips through in the
+# language the message is actually written in defeats the whole check.
+_RATING_WORDS = r"stars?|zvjezdic\w*|ocjen\w*|rejting\w*|rating|rated"
 _RATING = re.compile(
-    r"\b\d[.,]\d\s*(?:\*|★|/\s*5|stars?|zvjezdic|ocjen)|(?:rated|rating|ocjena)\s*[:\s]\s*\d",
+    rf"\b\d[.,]\d\s*(?:\*|★|/\s*5|{_RATING_WORDS})"
+    rf"|\b(?:{_RATING_WORDS})\s*[:\s]\s*\d",
     re.IGNORECASE,
 )
 

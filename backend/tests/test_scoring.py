@@ -181,6 +181,11 @@ class TestClaimChecking:
             "High-priority lead: 4.8 stars and no online booking.",
             "Rated 4,5★ locally, still takes bookings by phone.",
             "Their rating: 5 on Google, but no booking widget.",
+            # Bosnian. The agent writes in the language of the business, so a
+            # check that only covers English misses the messages it sends.
+            "Vas 4.9 rejting zasluzuje bolji sajt.",
+            "Ocjena: 4,7 uz odlicne termine.",
+            "Imate 4,8 zvjezdica na Google mapama.",
         ],
     )
     def test_an_invented_rating_is_caught(self, text: str) -> None:
