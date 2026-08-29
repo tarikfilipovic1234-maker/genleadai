@@ -228,6 +228,19 @@ class TestEnrichmentAndScoring:
         # No free source carries review data; the fields must stay unclaimed.
         assert "google_rating" in payload["unverified_fields"]
 
+    async def test_the_review_gap_is_explained_not_merely_blank(self) -> None:
+        """An unexplained "Not verified" reads as "we did not look", and a
+        user who cannot tell that from "there is nothing to find" trusts the
+        rest of the record less."""
+        ctx = await _ctx()
+        ctx.workspace.add(_stub())
+
+        facts = build_facts(ctx.workspace.require("b1"))
+
+        for field in (facts.google_rating, facts.google_review_count):
+            assert field.provenance is Provenance.UNVERIFIED
+            assert field.evidence and "no free source" in field.evidence
+
     async def test_a_salon_without_booking_scores_highest(self) -> None:
         """The product's core query, end to end through the tools."""
         ctx = await _ctx({"salonnova.ba": SITE_WITHOUT_BOOKING})
