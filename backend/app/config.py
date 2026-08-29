@@ -127,6 +127,19 @@ class Settings(BaseSettings):
                     "call a model on behalf of its visitors. Use AGENT_RUNTIME=replay "
                     "in production; run the live agent locally."
                 )
+
+        elif self.agent_runtime == "manual" and not os.environ.get("ANTHROPIC_API_KEY"):
+            # The mirror image of rule 1. The hand-written loop talks to the
+            # Messages API, which bills Console credits and cannot use a
+            # subscription. Starting without a key would fail on the first
+            # request with an opaque 401; saying so up front is kinder, and
+            # names the cost before it is incurred.
+            raise ConfigurationError(
+                "AGENT_RUNTIME=manual requires ANTHROPIC_API_KEY.\n"
+                "This runtime calls the Messages API directly, which bills Console "
+                "credits - it cannot use a Claude subscription. Use AGENT_RUNTIME=sdk "
+                "to run on your subscription, or replay to serve a recorded run."
+            )
         return self
 
     # ------------------------------------------------------------------

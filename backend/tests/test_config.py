@@ -48,6 +48,25 @@ def test_replay_runtime_is_allowed_in_production(monkeypatch: pytest.MonkeyPatch
     assert settings.agent_runtime == "replay"
 
 
+def test_the_manual_runtime_requires_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mirror image of the SDK guard.
+
+    The hand-written loop calls the Messages API, which bills Console credits
+    and cannot use a subscription. Without this it fails on the first request
+    with an opaque 401, having said nothing about cost.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with pytest.raises(ConfigurationError, match="requires ANTHROPIC_API_KEY"):
+        Settings(agent_runtime="manual", _env_file=None)
+
+
+def test_the_manual_runtime_starts_with_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-whatever")
+
+    assert Settings(agent_runtime="manual", _env_file=None).agent_runtime == "manual"
+
+
 @pytest.mark.parametrize(
     ("token", "expected"),
     [("token-value", "oauth_token_env"), (None, "claude_code_cli_login")],

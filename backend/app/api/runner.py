@@ -193,6 +193,11 @@ def _build_runtime(ctx: ToolContext, settings: Settings):
 
         return ReplayRuntime(ctx)
 
+    if settings.agent_runtime == "manual":
+        from app.agent.manual_runtime import MessagesAPIRuntime
+
+        return MessagesAPIRuntime(ctx, settings)
+
     from app.agent.sdk_runtime import AgentSDKRuntime
 
     return AgentSDKRuntime(ctx, settings)
