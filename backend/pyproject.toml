@@ -27,6 +27,7 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "pytest-timeout>=2.3",
     "ruff>=0.8",
 ]
 
@@ -47,3 +48,7 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# No test in this suite touches the network, so any that runs for 30 seconds
+# is deadlocked rather than slow. A hung suite is worse than a failing one:
+# it gives no diagnosis and blocks CI until something times it out.
+timeout = 30
