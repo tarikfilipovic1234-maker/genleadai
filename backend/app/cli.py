@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from typing import Any
 
 from app.config import get_settings
 from app.enrichment.booking import detect_booking
@@ -145,6 +146,67 @@ async def _inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run(args: argparse.Namespace) -> int:
+    """Execute a lead-generation task and print the event stream."""
+    from app.agent.runtime import EventType
+    from app.agent.sdk_runtime import AgentSDKRuntime
+    from app.agent.tools.context import ToolContext
+
+    settings = get_settings()
+    if args.provider:
+        settings = settings.model_copy(update={"search_provider": args.provider})
+
+    saved: list[dict[str, Any]] = []
+
+    async def collect(payload: dict[str, Any]) -> None:
+        saved.append(payload)
+
+    async with (
+        open_search_provider(settings) as provider,
+        WebsiteFetcher(user_agent=settings.http_user_agent) as fetcher,
+    ):
+        ctx = ToolContext(provider=provider, fetcher=fetcher, save_lead_fn=collect)
+        runtime = AgentSDKRuntime(ctx, settings)
+
+        print(f"runtime: {runtime.name}  |  provider: {provider.name}")
+        print(f"task   : {args.prompt}\n")
+
+        icons = {
+            EventType.RUN_STARTED: "*",
+            EventType.AGENT_MESSAGE: " ",
+            EventType.TOOL_CALLED: ">",
+            EventType.WARNING: "!",
+            EventType.RUN_COMPLETED: "=",
+            EventType.RUN_FAILED: "x",
+        }
+
+        async for ev in runtime.run(args.prompt, args.target):
+            mark = icons.get(ev.type, "-")
+            secs = ev.offset_ms / 1000
+            if ev.type is EventType.TOOL_CALLED:
+                detail = ", ".join(f"{k}={v}" for k, v in ev.payload.get("input", {}).items())
+                print(f"[{secs:6.1f}s] {mark} {ev.payload['tool']}({detail})")
+            elif ev.type is EventType.AGENT_MESSAGE:
+                for line in ev.payload["text"].splitlines():
+                    if line.strip():
+                        print(f"[{secs:6.1f}s] {mark}   {line.strip()[:110]}")
+            else:
+                summary = ", ".join(f"{k}={v}" for k, v in ev.payload.items() if k != "prompt")
+                print(f"[{secs:6.1f}s] {mark} {ev.type.value} {summary}")
+
+    if saved:
+        print(f"\n{'-' * 62}\nSaved {len(saved)} leads\n")
+        for lead in sorted(saved, key=lambda x: -x["score"]):
+            print(f"  {lead['score']:>3}/100  {lead['name']}")
+            print(f"           {lead['qualification_reason'][:100]}")
+            counts = lead["facts"].provenance_counts()
+            print(
+                f"           verified={counts['verified']} inferred={counts['inferred']} "
+                f"unverified={counts['unverified']}  sources={len(lead['sources'])}"
+            )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -164,6 +226,12 @@ def main(argv: list[str] | None = None) -> int:
     inspect.add_argument("--location", default="Sarajevo")
     inspect.add_argument("--ignore-robots", action="store_true", help="diagnostics only")
     inspect.set_defaults(func=_inspect)
+
+    run = sub.add_parser("run", help="execute a lead-generation task with the agent")
+    run.add_argument("prompt", help="natural-language request")
+    run.add_argument("--target", type=int, default=5, help="how many leads to save")
+    run.add_argument("--provider", choices=["overpass", "fixture"])
+    run.set_defaults(func=_run)
 
     args = parser.parse_args(argv)
     configure_logging(get_settings())

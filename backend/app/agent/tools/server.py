@@ -48,7 +48,7 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         "fetch_website",
         website.FETCH_DESCRIPTION,
-        website.URL_SCHEMA,
+        website.FETCH_SCHEMA,
         website.fetch_website,
     ),
     ToolSpec(
