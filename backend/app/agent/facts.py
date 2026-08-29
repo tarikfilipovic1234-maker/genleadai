@@ -91,9 +91,19 @@ def build_facts(record: BusinessRecord) -> LeadFacts:
     # --- online activity: always a judgement ---------------------------
     facts["appears_active_online"] = _activity_fact(record, signals)
 
-    # google_rating and google_review_count are intentionally absent, so they
-    # keep LeadFacts' UNVERIFIED default. No free source carries review data,
-    # and inventing one is precisely what this system refuses to do.
+    # Review data is never populated: no zero-cost source carries it, and
+    # inventing one is precisely what this system refuses to do. The reason is
+    # recorded rather than left blank so the interface can explain the gap
+    # instead of showing an unexplained "Not verified" - a user who cannot
+    # tell "we did not look" from "there is nothing to find" will assume the
+    # first, and trust the rest of the record less for it.
+    no_review_source = (
+        "no free source of Google review data is available to this system; "
+        "the field is left unverified rather than estimated"
+    )
+    facts.setdefault("google_rating", Fact[float].unverified(no_review_source))
+    facts.setdefault("google_review_count", Fact[int].unverified(no_review_source))
+
     return LeadFacts(**facts)
 
 

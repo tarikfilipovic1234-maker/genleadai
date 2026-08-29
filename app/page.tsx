@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import { LeadDetail } from "@/components/LeadDetail";
 import { LeadTable } from "@/components/LeadTable";
 import { ProvenanceLegend } from "@/components/Provenance";
 import { RunFeed } from "@/components/RunFeed";
@@ -81,6 +82,10 @@ export default function Dashboard() {
   const running = stream.state === "open";
   const awaitingFirstLead = isLoading || (running && leads.length === 0);
 
+  // Resolved from the list rather than held as its own object, so a lead that
+  // is deleted or re-scored mid-run cannot leave a stale copy open.
+  const selected = leads.find((lead) => lead.id === selectedId) ?? null;
+
   return (
     <div className="mx-auto max-w-[1500px] px-6 py-8 lg:px-10">
       <Header config={config} />
@@ -127,6 +132,22 @@ export default function Dashboard() {
       <footer className="mt-10 border-t border-line pt-5">
         <ProvenanceLegend />
       </footer>
+
+      {selected && (
+        <LeadDetail
+          lead={selected}
+          onClose={() => setSelectedId(null)}
+          onDeleted={(id) => {
+            setSelectedId(null);
+            // Drop the row optimistically, then revalidate. Waiting for the
+            // refetch leaves a deleted lead on screen for a visible beat.
+            void mutate(
+              (current) => (current ?? []).filter((lead) => lead.id !== id),
+              { revalidate: true },
+            );
+          }}
+        />
+      )}
     </div>
   );
 }
