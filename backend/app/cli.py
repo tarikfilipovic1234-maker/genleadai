@@ -148,6 +148,8 @@ async def _inspect(args: argparse.Namespace) -> int:
 
 async def _run(args: argparse.Namespace) -> int:
     """Execute a lead-generation task and print the event stream."""
+    from app.agent.events import EventBus
+    from app.agent.recorder import RunRecorder
     from app.agent.runtime import EventType
     from app.agent.sdk_runtime import AgentSDKRuntime
     from app.agent.tools.context import ToolContext
@@ -157,9 +159,13 @@ async def _run(args: argparse.Namespace) -> int:
         settings = settings.model_copy(update={"search_provider": args.provider})
 
     saved: list[dict[str, Any]] = []
+    recorder = RunRecorder(args.prompt, args.target, "sdk")
+    bus = EventBus()
+    bus.add_sink(recorder.on_event)
 
     async def collect(payload: dict[str, Any]) -> None:
         saved.append(payload)
+        recorder.on_lead(payload)
 
     async with (
         open_search_provider(settings) as provider,
@@ -181,11 +187,19 @@ async def _run(args: argparse.Namespace) -> int:
         }
 
         async for ev in runtime.run(args.prompt, args.target):
+            await bus.publish(ev)
             mark = icons.get(ev.type, "-")
             secs = ev.offset_ms / 1000
             if ev.type is EventType.TOOL_CALLED:
                 detail = ", ".join(f"{k}={v}" for k, v in ev.payload.get("input", {}).items())
                 print(f"[{secs:6.1f}s] {mark} {ev.payload['tool']}({detail})")
+            elif ev.type is EventType.TOOL_RESULT:
+                ms = ev.payload.get("duration_ms")
+                took = f"{ms}ms" if ms is not None else "?"
+                flag = "" if ev.payload.get("ok") else " FAILED"
+                summary = ev.payload.get("summary") or {}
+                bits = " ".join(f"{k}={v}" for k, v in summary.items())
+                print(f"[{secs:6.1f}s] < {ev.payload['tool']} {took}{flag} {bits}")
             elif ev.type is EventType.AGENT_MESSAGE:
                 for line in ev.payload["text"].splitlines():
                     if line.strip():
@@ -193,6 +207,8 @@ async def _run(args: argparse.Namespace) -> int:
             else:
                 summary = ", ".join(f"{k}={v}" for k, v in ev.payload.items() if k != "prompt")
                 print(f"[{secs:6.1f}s] {mark} {ev.type.value} {summary}")
+
+    await bus.close()
 
     if saved:
         print(f"\n{'-' * 62}\nSaved {len(saved)} leads\n")
@@ -204,6 +220,20 @@ async def _run(args: argparse.Namespace) -> int:
                 f"           verified={counts['verified']} inferred={counts['inferred']} "
                 f"unverified={counts['unverified']}  sources={len(lead['sources'])}"
             )
+
+    ledger = runtime.ledger
+    print(f"\n{'-' * 62}\nRun ledger")
+    for key, value in ledger.summary().items():
+        print(f"  {key:<22} {value}")
+    if ledger.slowest_calls:
+        print("  slowest calls")
+        for call in ledger.slowest_calls:
+            print(f"    {call.duration_ms:>6}ms  {call.tool}")
+
+    if args.record:
+        path = recorder.save(args.record, ledger)
+        print(f"\nRecorded {len(recorder.events)} events to {path}")
+
     return 0
 
 
@@ -231,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("prompt", help="natural-language request")
     run.add_argument("--target", type=int, default=5, help="how many leads to save")
     run.add_argument("--provider", choices=["overpass", "fixture"])
+    run.add_argument("--record", metavar="NAME", help="save this run as a replay fixture")
     run.set_defaults(func=_run)
 
     args = parser.parse_args(argv)
