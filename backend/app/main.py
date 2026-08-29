@@ -18,9 +18,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.sql import text
 
+from app.api.middleware import install_middleware
 from app.api.routes import router
 from app.api.runner import run_manager
 from app.config import get_settings
+from app.errors import install_error_handlers
 from app.obs.logging import configure_logging, get_logger
 
 settings = get_settings()
@@ -60,9 +62,13 @@ app.add_middleware(
     # The browser cannot read Last-Event-ID off a cross-origin response
     # without this, which silently breaks SSE reconnect in production while
     # working perfectly on localhost.
-    expose_headers=["Last-Event-ID"],
+    # X-Request-ID travels back so a user reporting a failure can quote the
+    # id that appears beside the traceback in the log.
+    expose_headers=["Last-Event-ID", "X-Request-ID"],
 )
 
+install_middleware(app)
+install_error_handlers(app)
 app.include_router(router)
 
 
