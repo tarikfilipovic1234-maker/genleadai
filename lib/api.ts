@@ -23,6 +23,9 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Stable machine-readable code, e.g. "rate_limited". Branch on this
+     *  rather than on the message, which is free to be reworded. */
+    readonly code: string = "unknown",
   ) {
     super(message);
     this.name = "ApiError";
@@ -42,32 +45,50 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(
       `Cannot reach the backend at ${API_BASE}. Is it running?`,
       0,
+      "unreachable",
     );
   }
 
   if (!response.ok) {
-    throw new ApiError(await describeFailure(response), response.status);
+    const { message, code } = await describeFailure(response);
+    throw new ApiError(message, response.status, code);
   }
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 }
 
-/** Turn FastAPI's validation envelope into something a person can act on. */
-async function describeFailure(response: Response): Promise<string> {
+/**
+ * Read the backend's error envelope.
+ *
+ * Every failure arrives as `{ error: { code, message, request_id } }` -
+ * including validation failures, which the backend flattens from FastAPI's
+ * nested loc/msg structure into readable text before sending. The `code` is
+ * the stable part; the message is what gets shown.
+ *
+ * The fallbacks below cover responses that never reached the application: a
+ * proxy's own 502 page, or a gateway timeout, neither of which knows about
+ * this envelope.
+ */
+async function describeFailure(
+  response: Response,
+): Promise<{ message: string; code: string }> {
   try {
     const body = await response.json();
-    if (Array.isArray(body?.detail)) {
-      return body.detail
-        .map((d: { loc?: string[]; msg?: string }) => {
-          const field = d.loc?.filter((p) => p !== "body").join(".");
-          return field ? `${field}: ${d.msg}` : d.msg;
-        })
-        .join("; ");
+    if (typeof body?.error?.message === "string") {
+      return {
+        message: body.error.message,
+        code: String(body.error.code ?? "unknown"),
+      };
     }
-    if (typeof body?.detail === "string") return body.detail;
+    if (typeof body?.detail === "string") {
+      return { message: body.detail, code: "unknown" };
+    }
   } catch {
-    /* fall through to the status text */
+    /* not JSON - fall through to the status text */
   }
-  return `${response.status} ${response.statusText}`;
+  return {
+    message: `${response.status} ${response.statusText}`,
+    code: "unknown",
+  };
 }
 
 export const api = {

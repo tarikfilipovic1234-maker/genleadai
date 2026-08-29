@@ -20,6 +20,7 @@ from sqlalchemy.orm import selectinload
 from app.agent.runtime import AgentEvent
 from app.db.models import AgentRun, Lead, RunEvent, RunStatus, Source, SourceKind, Task, TaskStatus
 from app.obs.logging import get_logger
+from app.schemas.lead import find_near_duplicate
 
 log = get_logger(__name__)
 
@@ -158,6 +159,23 @@ async def save_lead(session: AsyncSession, payload: dict[str, Any]) -> Lead | No
     under slightly different names - so the unique constraint is caught and
     reported, not raised at the agent.
     """
+    # The unique constraint catches exact repeats. It does not catch the case
+    # that actually occurs: OSM listing the same salon twice under names that
+    # normalise differently - "Salon Mia" and "Salon Mia Beauty Studio". Those
+    # slip through as two leads for one business, and the user finds out by
+    # calling twice.
+    existing = await session.execute(
+        select(Lead.dedup_key).where(Lead.task_id == payload["task_id"])
+    )
+    if (twin := find_near_duplicate(payload["dedup_key"], existing.scalars())) is not None:
+        log.info(
+            "repository.near_duplicate_lead",
+            name=payload["name"],
+            key=payload["dedup_key"],
+            matched=twin,
+        )
+        return None
+
     facts = payload["facts"]
     lead = Lead(
         task_id=payload["task_id"],
@@ -180,6 +198,10 @@ async def save_lead(session: AsyncSession, payload: dict[str, Any]) -> Lead | No
     try:
         await session.flush()
     except IntegrityError:
+        # Reached only when two saves race: the similarity check above catches
+        # exact repeats first, but it reads before it writes, so two
+        # concurrent saves of the same business can both pass it. The unique
+        # constraint is the arbiter, and losing that race is not an error.
         await session.rollback()
         log.info("repository.duplicate_lead", name=payload["name"], key=payload["dedup_key"])
         return None

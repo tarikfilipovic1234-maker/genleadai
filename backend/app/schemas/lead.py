@@ -15,6 +15,7 @@ from __future__ import annotations
 import enum
 import re
 import unicodedata
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -147,6 +148,53 @@ def normalize_for_dedup(name: str, address: str | None = None) -> str:
     folded = _PUNCT.sub(" ", folded)
     tokens = [t for t in _SPACE.split(folded) if t and t not in _NOISE]
     return " ".join(sorted(set(tokens)))[:255]
+
+
+# Two keys are treated as the same business above this. Tuned deliberately
+# high: "Salon Mia" against "Salon Mia Beauty" scores 0.5 on two tokens and
+# should merge, but so would "Salon Mia" against "Salon Ana" if the bar were
+# much lower - and merging two real businesses loses a lead permanently,
+# while a surviving near-duplicate is one row a person deletes in a second.
+# Set from the measured separation rather than by taste. Because generic trade
+# words are already stripped, what remains is the distinctive part of a name,
+# and the two populations sit far apart: different businesses share nothing and
+# score 0.0 ("mia" against "ana", "nova" against "diva"), while the same
+# business written two ways scores 0.5 or better ("andjela" against "andjela
+# sarajevo"). Anywhere in that gap works; 0.5 admits the one-extra-token case,
+# which is the common shape of an OpenStreetMap duplicate.
+#
+# The residual risk is a short key gaining a qualifier that changes the
+# business - "ana" against "ana maria" also scores 0.5 and would merge. The
+# address is folded into the key whenever the listing has one, which separates
+# those in practice. This threshold is the lever to raise if the trade ever
+# looks wrong.
+SIMILARITY_THRESHOLD = 0.5
+
+
+def key_similarity(a: str, b: str) -> float:
+    """Jaccard overlap of two dedup keys.
+
+    Set overlap rather than edit distance because the keys are already
+    normalised, sorted token strings. Edit distance on those measures how far
+    apart the tokens sorted, which is meaningless - "ana salon" and "mia
+    salon" differ by three characters and are different businesses.
+    """
+    left, right = set(a.split()), set(b.split())
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def find_near_duplicate(
+    key: str, existing: Iterable[str], threshold: float = SIMILARITY_THRESHOLD
+) -> str | None:
+    """Return the closest existing key that is near enough to be the same."""
+    best: tuple[float, str] | None = None
+    for candidate in existing:
+        score = key_similarity(key, candidate)
+        if score >= threshold and (best is None or score > best[0]):
+            best = (score, candidate)
+    return best[1] if best else None
 
 
 # ----------------------------------------------------------------------
