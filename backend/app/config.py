@@ -91,7 +91,7 @@ class Settings(BaseSettings):
                     "OAuth token, so every call would be billed to Console credits "
                     "instead of your Claude plan - silently.\n"
                     "Fix: unset it for this shell, e.g.\n"
-                    '    PowerShell:  Remove-Item Env:ANTHROPIC_API_KEY\n'
+                    "    PowerShell:  Remove-Item Env:ANTHROPIC_API_KEY\n"
                     "    bash:        unset ANTHROPIC_API_KEY"
                 )
             if self.app_env == "production":
