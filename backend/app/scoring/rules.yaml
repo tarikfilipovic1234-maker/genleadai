@@ -19,6 +19,31 @@
 version: 1
 max_score: 100
 
+# Profiles let one task ask a stricter question than another without editing
+# the rules. A profile names rules that are *mandatory*: a lead that fails one
+# is disqualified rather than merely scoring lower.
+#
+# This is the difference between "rank salons by how good a prospect they are"
+# and "find salons that do not have online booking". A 90-point lead that
+# happens to use Booksy is not a near miss for the second question - it is the
+# wrong answer, and burying it at position four of a ranked list still wastes
+# the user's time.
+profiles:
+  default:
+    description: Rank every candidate; disqualify nothing.
+    requires: []
+
+  no_online_booking:
+    description: >-
+      Only businesses with no online booking. The rule must have actually
+      fired, so a business whose website could not be read is excluded -
+      its booking status is unknown, and unknown is not the same as absent.
+    requires: [no_online_booking]
+
+  no_booking_with_social:
+    description: No online booking and a reachable social presence.
+    requires: [no_online_booking, active_instagram]
+
 rules:
   - id: no_online_booking
     points: 30

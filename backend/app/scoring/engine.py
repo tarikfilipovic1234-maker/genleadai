@@ -48,20 +48,51 @@ class Rule:
 
 
 @dataclass(frozen=True)
+class Profile:
+    """A named way of asking the question.
+
+    ``requires`` lists rules that must fire for a lead to qualify at all.
+    """
+
+    name: str
+    description: str
+    requires: tuple[str, ...]
+
+
+DEFAULT_PROFILE = "default"
+
+
+@dataclass(frozen=True)
 class RuleSet:
     version: int
     max_score: int
     rules: tuple[Rule, ...]
+    profiles: dict[str, Profile]
+
+    def profile(self, name: str | None) -> Profile:
+        if not name:
+            return self.profiles[DEFAULT_PROFILE]
+        if (found := self.profiles.get(name)) is None:
+            raise RuleError(f"unknown profile {name!r}; known: {', '.join(sorted(self.profiles))}")
+        return found
 
 
 @dataclass(frozen=True)
 class ScoreResult:
     score: int
     contributions: list[ScoreContribution]
+    # Rules the active profile demanded that did not fire. Non-empty means the
+    # lead does not answer the question that was asked, whatever it scored.
+    unmet_requirements: tuple[str, ...] = ()
+    profile: str = DEFAULT_PROFILE
 
     @property
     def matched_rules(self) -> list[str]:
         return [c.rule for c in self.contributions]
+
+    @property
+    def qualifies(self) -> bool:
+        return not self.unmet_requirements
 
 
 # ----------------------------------------------------------------------
@@ -89,10 +120,29 @@ def load_rules(path: Path = RULES_PATH) -> RuleSet:
             )
         )
 
+    known_ids = {rule.id for rule in rules}
+    profiles: dict[str, Profile] = {}
+    for name, entry in (raw.get("profiles") or {}).items():
+        requires = tuple(entry.get("requires") or [])
+        # Caught at load time rather than at scoring time. A profile requiring
+        # a rule that no longer exists would otherwise disqualify every lead
+        # silently, and "the agent found nothing" is a very confusing way to
+        # discover a typo in a config file.
+        if unknown := set(requires) - known_ids:
+            raise RuleError(
+                f"profile {name!r} requires unknown rule(s): {', '.join(sorted(unknown))}"
+            )
+        profiles[name] = Profile(
+            name=name, description=str(entry.get("description", "")).strip(), requires=requires
+        )
+
+    profiles.setdefault(DEFAULT_PROFILE, Profile(DEFAULT_PROFILE, "Rank every candidate.", ()))
+
     return RuleSet(
         version=int(raw.get("version", 1)),
         max_score=int(raw.get("max_score", 100)),
         rules=tuple(rules),
+        profiles=profiles,
     )
 
 
@@ -149,9 +199,11 @@ def score_lead(
     facts: LeadFacts,
     signals: SiteSignals | None = None,
     ruleset: RuleSet | None = None,
+    profile: str | None = None,
 ) -> ScoreResult:
-    """Score a lead and record which rule contributed each point."""
+    """Score a lead, recording which rule contributed each point."""
     ruleset = ruleset or default_rules()
+    active = ruleset.profile(profile)
 
     contributions = [
         ScoreContribution(rule=rule.id, points=rule.points, reason=rule.reason)
@@ -159,8 +211,16 @@ def score_lead(
         if _evaluate(rule.when, facts, signals)
     ]
 
+    matched = {c.rule for c in contributions}
+    unmet = tuple(r for r in active.requires if r not in matched)
+
     total = sum(c.points for c in contributions)
     # Clamped because the rules file is user-editable and the database has a
     # 0-100 check constraint. A mis-tuned weights file should produce a
     # capped score, not a failed insert halfway through a run.
-    return ScoreResult(score=min(total, ruleset.max_score), contributions=contributions)
+    return ScoreResult(
+        score=min(total, ruleset.max_score),
+        contributions=contributions,
+        unmet_requirements=unmet,
+        profile=active.name,
+    )

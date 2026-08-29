@@ -20,6 +20,7 @@ from app.agent.tools.context import ToolContext, tool_error, tool_result
 from app.obs.logging import get_logger
 from app.schemas.lead import normalize_for_dedup
 from app.scoring.engine import score_lead as compute_score
+from app.scoring.qualification import check_claims, format_problems
 
 log = get_logger(__name__)
 
@@ -94,7 +95,45 @@ async def save_lead(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         )
 
     facts = build_facts(record)
-    scored = compute_score(facts, record.signals)
+    scored = compute_score(facts, record.signals, profile=ctx.scoring_profile)
+
+    # The structured fields are safe by construction - there is no parameter
+    # through which a fact could arrive. The prose is not: it reaches the user
+    # verbatim, and is where an invented rating would actually appear.
+    problems = [
+        problem
+        for field, text in (
+            ("qualification_reason", args.get("qualification_reason") or ""),
+            ("sales_angle", args.get("sales_angle") or ""),
+            ("outreach_message", outreach),
+        )
+        for problem in check_claims(text, facts, where=field)
+    ]
+    if problems:
+        log.warning(
+            "tool.save_lead.unsupported_claims",
+            handle=record.handle,
+            claims=[p.quote for p in problems],
+        )
+        return tool_error(format_problems(problems), unsupported_claims=len(problems))
+
+    if not scored.qualifies:
+        # The lead does not answer the question that was asked. Reported, not
+        # silently dropped, so the agent can say why it skipped it.
+        return tool_result(
+            {
+                "handle": record.handle,
+                "saved": False,
+                "reason": "does not meet the required criteria for this task",
+                "unmet_requirements": list(scored.unmet_requirements),
+                "profile": scored.profile,
+                "score": scored.score,
+                "guidance": (
+                    "Skip this business and move on. If the requirement is unmet because "
+                    "a fact is unverified rather than false, say so in your summary."
+                ),
+            }
+        )
 
     payload = {
         "task_id": ctx.task_id,
@@ -104,6 +143,11 @@ async def save_lead(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         "category": record.stub.category,
         "dedup_key": normalize_for_dedup(record.stub.name, record.stub.address),
         "facts": facts,
+        # Persisted so a lead can be re-scored faithfully later. Without them
+        # the signal-driven rules cannot fire on a replay, and re-scoring a
+        # recorded run would silently report lower totals - which looks like a
+        # weight change rather than missing input.
+        "signals": record.signals,
         "score": scored.score,
         "score_breakdown": scored.contributions,
         "qualification_reason": (args.get("qualification_reason") or "").strip(),

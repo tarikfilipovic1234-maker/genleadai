@@ -171,7 +171,12 @@ async def _run(args: argparse.Namespace) -> int:
         open_search_provider(settings) as provider,
         WebsiteFetcher(user_agent=settings.http_user_agent) as fetcher,
     ):
-        ctx = ToolContext(provider=provider, fetcher=fetcher, save_lead_fn=collect)
+        ctx = ToolContext(
+            provider=provider,
+            fetcher=fetcher,
+            save_lead_fn=collect,
+            scoring_profile=args.profile,
+        )
         runtime = AgentSDKRuntime(ctx, settings)
 
         print(f"runtime: {runtime.name}  |  provider: {provider.name}")
@@ -237,6 +242,73 @@ async def _run(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _score(args: argparse.Namespace) -> int:
+    """Re-score recorded leads against the current rules.
+
+    The tuning loop: edit rules.yaml, run this, see how the ranking moved -
+    with no model, no network and no cost. Scoring is arithmetic, so a change
+    in weights is fully observable without re-running the agent.
+    """
+    from app.agent.recorder import list_recordings, load_recording
+    from app.schemas.lead import LeadFacts
+    from app.schemas.page import SiteSignals
+    from app.scoring.engine import default_rules, score_lead
+
+    recordings = list_recordings()
+    if not recordings:
+        print("No recorded runs. Run: python -m app.cli run '...' --record NAME")
+        return 1
+
+    ruleset = default_rules()
+    if args.list_profiles:
+        print("Profiles:\n")
+        for name, profile in sorted(ruleset.profiles.items()):
+            requires = ", ".join(profile.requires) or "nothing"
+            print(f"  {name:<24} requires: {requires}")
+            if profile.description:
+                print(f"  {'':<24} {profile.description}")
+        return 0
+
+    print(f"rules v{ruleset.version}  |  profile: {args.profile or 'default'}\n")
+
+    for path in recordings:
+        data = load_recording(path)
+        print(f"{path.name}  ({len(data['leads'])} leads)")
+
+        rescored = []
+        missing_signals = 0
+        for lead in data["leads"]:
+            facts = LeadFacts.model_validate(lead["facts"])
+            raw_signals = lead.get("signals")
+            signals = SiteSignals.model_validate(raw_signals) if raw_signals else None
+            if signals is None:
+                # Recorded before signals were persisted. Without them the
+                # signal-driven rules cannot fire, so the total will read low -
+                # which looks like a weight change unless we say otherwise.
+                missing_signals += 1
+            result = score_lead(facts, signals, ruleset, profile=args.profile)
+            rescored.append((result, lead))
+
+        if missing_signals:
+            print(
+                f"  note: {missing_signals} lead(s) predate signal recording; "
+                "their website-quality rules cannot be re-evaluated"
+            )
+
+        for result, lead in sorted(rescored, key=lambda r: -r[0].score):
+            flag = (
+                ""
+                if result.qualifies
+                else f"  DISQUALIFIED ({', '.join(result.unmet_requirements)})"
+            )
+            print(f"  {result.score:>3}  was {lead['score']:>3}  {lead['name']}{flag}")
+            for c in result.contributions:
+                print(f"        +{c.points:<3} {c.rule}")
+        print()
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -262,7 +334,13 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--target", type=int, default=5, help="how many leads to save")
     run.add_argument("--provider", choices=["overpass", "fixture"])
     run.add_argument("--record", metavar="NAME", help="save this run as a replay fixture")
+    run.add_argument("--profile", help="scoring profile, e.g. no_online_booking")
     run.set_defaults(func=_run)
+
+    score = sub.add_parser("score", help="re-score recorded leads against the current rules")
+    score.add_argument("--profile", help="scoring profile to apply")
+    score.add_argument("--list-profiles", action="store_true")
+    score.set_defaults(func=_score)
 
     args = parser.parse_args(argv)
     configure_logging(get_settings())

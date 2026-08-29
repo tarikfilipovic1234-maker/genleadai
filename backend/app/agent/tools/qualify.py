@@ -40,9 +40,14 @@ async def score_lead(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         return tool_error(str(exc))
 
     facts = build_facts(record)
-    result = compute_score(facts, record.signals)
+    result = compute_score(facts, record.signals, profile=ctx.scoring_profile)
 
-    log.info("tool.score_lead", handle=record.handle, score=result.score)
+    log.info(
+        "tool.score_lead",
+        handle=record.handle,
+        score=result.score,
+        qualifies=result.qualifies,
+    )
 
     return tool_result(
         {
@@ -50,6 +55,8 @@ async def score_lead(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             "name": record.stub.name,
             "score": result.score,
             "max_score": default_rules().max_score,
+            "qualifies": result.qualifies,
+            "unmet_requirements": list(result.unmet_requirements),
             "breakdown": [
                 {"rule": c.rule, "points": c.points, "reason": c.reason}
                 for c in result.contributions

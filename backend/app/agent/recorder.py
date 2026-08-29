@@ -57,8 +57,10 @@ class RunRecorder:
         produces a repr nothing can load back.
         """
         record = dict(payload)
-        if (facts := record.get("facts")) is not None and hasattr(facts, "model_dump"):
-            record["facts"] = facts.model_dump(mode="json")
+        for key in ("facts", "signals"):
+            value = record.get(key)
+            if value is not None and hasattr(value, "model_dump"):
+                record[key] = value.model_dump(mode="json")
         record["score_breakdown"] = [
             c.model_dump(mode="json") if hasattr(c, "model_dump") else c
             for c in record.get("score_breakdown", [])
