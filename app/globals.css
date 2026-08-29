@@ -1,26 +1,154 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ------------------------------------------------------------------
+   Design language: a research instrument, not a marketing dashboard.
+
+   The product's distinguishing claim is that it knows what it does not
+   know, so provenance is the visual system rather than a footnote:
+
+     verified    amber, solid, filled - the only saturated colour on the
+                 page, so the eye lands on evidence first
+     inferred    sage, hollow, dashed - visibly provisional
+     unverified  graphite, struck through - present and legible, because
+                 an absence you cannot see is indistinguishable from data
+
+   Amber appears nowhere else. The moment it decorates a button or a
+   heading it stops meaning "verified" and the system collapses.
+   ------------------------------------------------------------------ */
+
+@theme {
+  --color-ground: #0b0a09;
+  --color-surface: #131211;
+  --color-raised: #1b1917;
+  --color-line: #2a2724;
+  --color-line-bright: #3a3632;
+
+  --color-ink: #ece7dd;
+  --color-ink-dim: #9a9287;
+  --color-ink-faint: #6b645b;
+
+  --color-verified: #e0a42c;
+  --color-verified-dim: #6b4f16;
+  --color-inferred: #7fa898;
+  --color-inferred-dim: #2f463f;
+  --color-alert: #c96442;
+
+  --font-display: var(--font-instrument-serif), Georgia, serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+
+  /* A faint warm wash from the top-left plus a fine grid. Together they
+     stop the near-black reading as a flat void, which is what makes most
+     dark dashboards feel cheap. */
+  background-image:
+    radial-gradient(
+      ellipse 900px 600px at 12% -10%,
+      rgba(224, 164, 44, 0.055),
+      transparent 60%
+    ),
+    linear-gradient(rgba(255, 255, 255, 0.014) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.014) 1px, transparent 1px);
+  background-size: 100% 100%, 34px 34px, 34px 34px;
+  background-attachment: fixed;
+}
+
+::selection {
+  background: var(--color-verified);
+  color: var(--color-ground);
+}
+
+/* Scrollbars, because a dark interface with default light scrollbars
+   looks unfinished the moment any panel overflows. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-bright) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-bright);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@layer utilities {
+  .rule-label {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
+
+  /* Diagonal hatching for the unverified state. Reads as "deliberately
+     blank" rather than "we forgot to fill this in". */
+  .hatched {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 4px,
+      rgba(154, 146, 135, 0.11) 4px,
+      rgba(154, 146, 135, 0.11) 5px
+    );
+  }
+
+  .grain::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.28;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  }
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 260ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-in,
+  .animate-pulse-dot {
+    animation: none;
+  }
 }
