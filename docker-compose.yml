@@ -1,0 +1,47 @@
+# Local development stack.
+#
+# Docker is optional for this project - if you would rather not install Docker
+# Desktop, point DATABASE_URL at a free Neon instance instead and skip this
+# file entirely. It is committed because a production-shaped repo is expected
+# to have one, and because it makes the project reproducible for anyone else.
+#
+#   docker compose up -d db     # just Postgres, run the API on the host
+#   docker compose up           # everything
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: leadgen
+      POSTGRES_PASSWORD: leadgen
+      POSTGRES_DB: leadgen
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leadgen -d leadgen"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      # Override the host-facing URL: inside the compose network the database
+      # is reachable as "db", not localhost.
+      DATABASE_URL: postgresql+asyncpg://leadgen:leadgen@db:5432/leadgen
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    # NOTE: the "sdk" agent runtime does not work in this container - it needs
+    # the Claude Code CLI and your interactive login. Run the API on the host
+    # for live agent work; use this service with AGENT_RUNTIME=replay.
+
+volumes:
+  pgdata:
