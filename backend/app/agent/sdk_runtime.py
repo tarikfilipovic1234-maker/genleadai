@@ -14,6 +14,7 @@ with AGENT_RUNTIME=sdk in production.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -26,9 +27,13 @@ from claude_agent_sdk import (
     ResultMessage,
     TextBlock,
     ThinkingBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 
+from app.agent.hooks import build_hooks
+from app.agent.ledger import RunLedger
 from app.agent.prompts import build_system_prompt
 from app.agent.runtime import AgentEvent, EventType
 from app.agent.tools.context import ToolContext
@@ -76,6 +81,11 @@ class AgentSDKRuntime:
         self._ctx = ctx
         self._settings = settings or get_settings()
         self.run_id: UUID = ctx.run_id or uuid4()
+        # Populated during the run; readable afterwards for the ledger summary,
+        # the database record and the replay fixture.
+        self.ledger = RunLedger()
+        # tool_use_id -> display name, so a result can be matched to its call.
+        self._pending_tools: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     def _options(self, target_count: int) -> ClaudeAgentOptions:
@@ -89,6 +99,9 @@ class AgentSDKRuntime:
             # that can ask a question would hang the request instead.
             "permission_mode": "dontAsk",
             "max_turns": self._settings.agent_max_turns,
+            # Telemetry only - see app/agent/hooks.py. Permission decisions
+            # stay with the declarative allow/deny lists above.
+            "hooks": build_hooks(self.ledger),
         }
         # Left unset unless pinned, so we inherit whatever model Claude Code
         # defaults to for this plan rather than failing on one it lacks.
@@ -115,10 +128,6 @@ class AgentSDKRuntime:
             target_count=target_count,
         )
 
-        turns = 0
-        cost: float | None = None
-        error: str | None = None
-
         try:
             async with ClaudeSDKClient(options=self._options(target_count)) as client:
                 await client.query(prompt)
@@ -128,24 +137,30 @@ class AgentSDKRuntime:
                         yield produced
 
                     if isinstance(message, ResultMessage):
-                        turns = getattr(message, "num_turns", 0) or 0
-                        cost = getattr(message, "total_cost_usd", None)
+                        self.ledger.absorb_result(message)
 
         except Exception as exc:  # noqa: BLE001
             # Never let an exception escape the iterator. A silent stream is
             # indistinguishable from a slow one at the dashboard, so a failure
             # must arrive as an event the UI can render.
             log.exception("agent.run_failed", run_id=str(self.run_id))
-            error = f"{type(exc).__name__}: {exc}"
-            yield event(EventType.RUN_FAILED, error=error, leads_saved=len(self._ctx.saved_handles))
+            self.ledger.finish()
+            yield event(
+                EventType.RUN_FAILED,
+                error=f"{type(exc).__name__}: {exc}",
+                leads_saved=len(self._ctx.saved_handles),
+                ledger=self.ledger.summary(),
+            )
             return
+
+        self.ledger.finish()
+        log.info("agent.run_completed", run_id=str(self.run_id), **self.ledger.summary())
 
         yield event(
             EventType.RUN_COMPLETED,
             leads_saved=len(self._ctx.saved_handles),
             businesses_found=len(self._ctx.workspace),
-            turns=turns,
-            cost_usd=cost,
+            ledger=self.ledger.summary(),
         )
 
     # ------------------------------------------------------------------
@@ -158,10 +173,13 @@ class AgentSDKRuntime:
                 if isinstance(block, TextBlock) and block.text.strip():
                     events.append(event(EventType.AGENT_MESSAGE, text=block.text.strip()))
                 elif isinstance(block, ToolUseBlock):
+                    name = _short_name(block.name)
+                    self._pending_tools[block.id] = name
                     events.append(
                         event(
                             EventType.TOOL_CALLED,
-                            tool=_short_name(block.name),
+                            tool=name,
+                            tool_use_id=block.id,
                             # Inputs are small by design - a handle, a URL - so
                             # they are safe to stream to the UI, and seeing
                             # them is most of what makes a run legible.
@@ -174,12 +192,85 @@ class AgentSDKRuntime:
                     # already show what the agent decided.
                     continue
 
+        elif isinstance(message, UserMessage) and isinstance(message.content, list):
+            # Tool results arrive as blocks on a user message - the SDK models
+            # them as the transcript's reply to the assistant's tool call.
+            for block in message.content:
+                if isinstance(block, ToolResultBlock):
+                    events.append(self._tool_result_event(block, event))
+
         return events
+
+    def _tool_result_event(self, block: ToolResultBlock, event) -> AgentEvent:
+        """Report a tool's outcome, with the duration the hooks measured."""
+        name = self._pending_tools.pop(block.tool_use_id, "tool")
+        call = next(
+            (c for c in reversed(self.ledger.calls) if c.tool_use_id == block.tool_use_id), None
+        )
+
+        payload: dict[str, Any] = {
+            "tool": name,
+            "tool_use_id": block.tool_use_id,
+            "ok": not bool(block.is_error),
+            "duration_ms": call.duration_ms if call else None,
+        }
+
+        # Only a summary reaches the stream. Full results are large - a search
+        # returns thirty businesses - and the dashboard needs to know that a
+        # call succeeded and roughly what it produced, not to re-receive it.
+        summary = _summarise_result(block.content)
+        if summary:
+            payload["summary"] = summary
+
+        if name == "save_lead" and not block.is_error:
+            payload["leads_saved"] = len(self._ctx.saved_handles)
+
+        return event(EventType.TOOL_RESULT, **payload)
 
 
 def _short_name(tool_name: str) -> str:
     """Strip the mcp__leadgen__ prefix for display."""
     return tool_name.rsplit("__", 1)[-1] if tool_name.startswith("mcp__") else tool_name
+
+
+def _summarise_result(content: Any) -> dict[str, Any] | None:
+    """Extract the small, interesting part of a tool result.
+
+    Tool payloads are JSON, but only a handful of keys are worth streaming -
+    counts, scores, names. Everything else is either large or already visible
+    elsewhere in the run.
+    """
+    if isinstance(content, list):
+        text = next(
+            (b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"),
+            "",
+        )
+    elif isinstance(content, str):
+        text = content
+    else:
+        return None
+
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    interesting = (
+        "found",
+        "with_website",
+        "score",
+        "saved",
+        "name",
+        "handle",
+        "has_booking",
+        "provider",
+        "reachable",
+        "total_saved",
+        "error",
+    )
+    return {k: parsed[k] for k in interesting if k in parsed} or None
 
 
 def _summarise_input(payload: Any) -> dict[str, Any]:
