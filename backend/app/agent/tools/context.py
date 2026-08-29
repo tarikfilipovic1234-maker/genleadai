@@ -34,6 +34,11 @@ class ToolContext:
     run_id: UUID | None = None
     requirements: TaskRequirements | None = None
 
+    # Which scoring profile this task is judged against. A profile can make
+    # rules mandatory, so a lead failing one is disqualified rather than
+    # merely ranked lower. See app/scoring/rules.yaml.
+    scoring_profile: str | None = None
+
     # Injected so tools can persist without importing the session machinery,
     # and so tests can run the whole tool layer with no database at all.
     # Must be async: the real implementation writes to Postgres.
