@@ -309,6 +309,55 @@ async def _score(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _outreach(args: argparse.Namespace) -> int:
+    """Generate outreach for recorded leads and report verification."""
+    from app.agent.recorder import list_recordings, load_recording
+    from app.outreach.generator import channel_for, generate_outreach
+    from app.schemas.lead import LeadFacts
+
+    recordings = list_recordings()
+    if not recordings:
+        print("No recorded runs. Run: python -m app.cli run '...' --record NAME")
+        return 1
+
+    leads = [lead for path in recordings for lead in load_recording(path)["leads"]][: args.limit]
+    print(f"Generating outreach for {len(leads)} recorded leads\n")
+
+    for lead in leads:
+        facts = LeadFacts.model_validate(lead["facts"])
+        print(f"{'=' * 66}\n{lead['name']}  ({lead['score']}/100)")
+        print(f"  verified channels: {[c.value for c in _channels(facts)] or 'none'}")
+        print(f"  preferred        : {(channel_for(facts) or 'none')}\n")
+
+        result = await generate_outreach(facts, instruction=args.instruction)
+
+        if not result.ok:
+            print(f"  FAILED after {result.attempts} attempt(s): {result.error}")
+            for problem in result.problems:
+                print(f"    - {problem.field}: {problem.quote!r} - {problem.explanation}")
+            print()
+            continue
+
+        draft = result.draft
+        assert draft is not None
+        print(f"  channel  : {draft.channel.value}   language: {draft.language.value}")
+        print(f"  anchors  : {', '.join(draft.anchors)}")
+        print(f"  rationale: {draft.opening_rationale}")
+        print(f"  attempts : {result.attempts}")
+        print(f"\n  Subject: {draft.subject}\n")
+        for line in draft.message.splitlines():
+            print(f"    {line}")
+        print()
+
+    return 0
+
+
+def _channels(facts) -> list:
+    from app.outreach.schema import usable_channels
+
+    return usable_channels(facts)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -341,6 +390,11 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--profile", help="scoring profile to apply")
     score.add_argument("--list-profiles", action="store_true")
     score.set_defaults(func=_score)
+
+    outreach = sub.add_parser("outreach", help="generate outreach for recorded leads")
+    outreach.add_argument("--limit", type=int, default=3)
+    outreach.add_argument("--instruction", help="extra steer, e.g. 'write in English'")
+    outreach.set_defaults(func=_outreach)
 
     args = parser.parse_args(argv)
     configure_logging(get_settings())
