@@ -23,7 +23,7 @@ try:
         query,
     )
 except ImportError as exc:  # pragma: no cover - setup diagnostics
-    sys.exit(f"claude-agent-sdk is not installed ({exc}).\n  pip install -e \".[dev]\"")
+    sys.exit(f'claude-agent-sdk is not installed ({exc}).\n  pip install -e ".[dev]"')
 
 
 def preflight() -> None:
@@ -86,9 +86,7 @@ async def main() -> int:
             # rename degrades the report instead of crashing the smoke test.
             cost = getattr(message, "total_cost_usd", None)
             turns = getattr(message, "num_turns", None)
-            reason = getattr(message, "terminal_reason", None) or getattr(
-                message, "subtype", None
-            )
+            reason = getattr(message, "terminal_reason", None) or getattr(message, "subtype", None)
             print()
             print(f"  turns          : {turns}")
             print(f"  terminal reason: {reason}")
