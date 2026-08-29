@@ -16,6 +16,9 @@ import asyncio
 import sys
 
 from app.config import get_settings
+from app.enrichment.booking import detect_booking
+from app.enrichment.extract import extract_signals
+from app.enrichment.fetcher import WebsiteFetcher
 from app.obs.logging import configure_logging
 from app.providers.fixture import FixtureProvider
 from app.providers.http import ProviderError
@@ -88,6 +91,60 @@ async def _search(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _inspect(args: argparse.Namespace) -> int:
+    """Fetch websites and report what the deterministic layer can establish.
+
+    Deliberately runs with no model involved. Everything printed here is
+    reached by fetching and pattern matching, which is the point: it shows
+    exactly how much is known before the agent is asked to reason at all.
+    """
+    settings = get_settings()
+
+    urls: list[str] = list(args.urls)
+    if args.from_fixture:
+        stubs = await FixtureProvider().find_businesses(
+            BusinessQuery(category=args.from_fixture, location=args.location, limit=100)
+        )
+        urls += [s.website for s in stubs if s.website]
+        print(f"{len(urls)} of {len(stubs)} fixture businesses list a website\n")
+
+    if not urls:
+        print("No URLs to inspect.")
+        return 0
+
+    async with WebsiteFetcher(
+        user_agent=settings.http_user_agent, respect_robots=not args.ignore_robots
+    ) as fetcher:
+        pages = await fetcher.fetch_many(urls)
+
+    for page in pages:
+        print(f"\n{page.requested_url}")
+        if not page.ok:
+            print(f"  outcome : {page.outcome.value} ({page.error})")
+            continue
+
+        signals = extract_signals(page.html, final_url=page.final_url, text=page.text)
+        booking = detect_booking(page)
+
+        answer = {True: "yes", False: "no", None: "unknown"}[booking.has_booking]
+        strength = "verified" if booking.is_direct_evidence else "inferred"
+
+        print(f"  title   : {page.title}")
+        print(f"  booking : {answer} ({strength}) - {booking.evidence[:90]}")
+        print(
+            f"  quality : https={signals.https} mobile={signals.mobile_friendly} "
+            f"copyright={signals.copyright_year} text={signals.text_length}c"
+        )
+        if signals.emails or signals.phones:
+            print(f"  contact : {', '.join(signals.emails + signals.phones)}")
+        if signals.outbound_social:
+            print(f"  social  : {', '.join(signals.outbound_social[:3])}")
+
+    reachable = sum(1 for p in pages if p.ok)
+    print(f"\n{'-' * 60}\n{reachable}/{len(pages)} reachable")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -100,6 +157,13 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("--no-cache", action="store_true", help="bypass the HTTP disk cache")
     search.add_argument("--record", action="store_true", help="save results as a test fixture")
     search.set_defaults(func=_search)
+
+    inspect = sub.add_parser("inspect", help="fetch websites and report deterministic signals")
+    inspect.add_argument("urls", nargs="*", help="URLs to fetch")
+    inspect.add_argument("--from-fixture", metavar="CATEGORY", help="use websites in a fixture")
+    inspect.add_argument("--location", default="Sarajevo")
+    inspect.add_argument("--ignore-robots", action="store_true", help="diagnostics only")
+    inspect.set_defaults(func=_inspect)
 
     args = parser.parse_args(argv)
     configure_logging(get_settings())
