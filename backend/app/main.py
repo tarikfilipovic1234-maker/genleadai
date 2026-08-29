@@ -18,6 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.sql import text
 
+from app.api.routes import router
+from app.api.runner import run_manager
 from app.config import get_settings
 from app.obs.logging import configure_logging, get_logger
 
@@ -36,6 +38,10 @@ async def lifespan(app: FastAPI):
         model=settings.claude_model or "<claude-code default>",
     )
     yield
+    # Runs outlive the requests that start them, so they must be cancelled
+    # explicitly or the process hangs on shutdown waiting for an agent that
+    # is still patiently fetching salon websites.
+    await run_manager.shutdown()
     log.info("backend.stopped")
 
 
@@ -51,7 +57,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # The browser cannot read Last-Event-ID off a cross-origin response
+    # without this, which silently breaks SSE reconnect in production while
+    # working perfectly on localhost.
+    expose_headers=["Last-Event-ID"],
 )
+
+app.include_router(router)
 
 
 async def _check_database() -> dict[str, Any]:

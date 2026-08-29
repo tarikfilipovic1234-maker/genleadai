@@ -188,6 +188,10 @@ class TaskRequirements(BaseModel):
 class CreateTaskRequest(BaseModel):
     prompt: str = Field(min_length=8, max_length=2000)
     target_count: int = Field(default=10, ge=1, le=100)
+    # Names a scoring profile from rules.yaml. A profile can make rules
+    # mandatory, so "find salons without online booking" excludes rather than
+    # merely down-ranks a salon that has it.
+    scoring_profile: str | None = None
 
     @field_validator("prompt")
     @classmethod
