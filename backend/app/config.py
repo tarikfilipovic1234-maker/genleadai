@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -25,6 +26,9 @@ AgentRuntimeName = Literal["sdk", "replay", "manual"]
 
 # How the Claude Agent SDK will end up authenticating, for display purposes.
 AuthMode = Literal["oauth_token_env", "claude_code_cli_login", "not_applicable"]
+
+# Which SearchProvider implementation supplies businesses. See app/providers/.
+SearchProviderName = Literal["overpass", "fixture"]
 
 
 class ConfigurationError(RuntimeError):
@@ -59,6 +63,28 @@ class Settings(BaseSettings):
 
     # Runaway guards, enforced by the SDK itself (M6).
     agent_max_turns: int = 40
+
+    # --- data providers ------------------------------------------------
+    # overpass = live OpenStreetMap data (free, keyless)
+    # fixture  = recorded responses; offline and deterministic, used by tests
+    search_provider: SearchProviderName = "overpass"
+
+    overpass_url: str = "https://overpass-api.de/api/interpreter"
+    nominatim_url: str = "https://nominatim.openstreetmap.org/search"
+
+    # Nominatim's usage policy requires a User-Agent that identifies the
+    # application and offers a way to make contact. A generic one gets blocked.
+    http_user_agent: str = (
+        "genleadai/0.1 (AI lead generation portfolio project; "
+        "+https://github.com/tarikFilipovic123/genleadai)"
+    )
+    # One request per second per host - the rate both Overpass and Nominatim ask for.
+    http_min_interval_s: float = 1.0
+    http_timeout_s: float = 30.0
+    http_cache_dir: Path = Path(".cache/http")
+    # Disabling this makes every run hit the network. Useful for verifying a
+    # provider against live data; wasteful and impolite as a default.
+    http_use_cache: bool = True
 
     # --- http ----------------------------------------------------------
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
