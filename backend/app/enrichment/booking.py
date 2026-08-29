@@ -44,6 +44,12 @@ PROVIDER_SIGNATURES: dict[str, tuple[str, ...]] = {
     "Acuity Scheduling": ("acuityscheduling.com", "squarespacescheduling.com"),
     "Zoyya": ("zoyya.com",),
     "Naruci.me": ("naruci.me",),
+    # Found by the agent during a live Sarajevo run, not by desk research:
+    # four of the salons it examined were listed on SrediMe, which this list
+    # did not cover. Local platforms are exactly the blind spot a signature
+    # list assembled from global SaaS will have, and the cost of missing one
+    # is reporting "no online booking" for a business that plainly has it.
+    "SrediMe": ("sredime.ba", "sredi.me"),
     "Termin.mk": ("termin.mk",),
     "Timify": ("timify.com",),
     "Salonized": ("salonized.com",),
