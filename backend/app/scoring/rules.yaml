@@ -1,0 +1,89 @@
+# Lead scoring rules.
+#
+# Editable without touching Python, which is the point: what makes a lead
+# valuable is a commercial judgement that changes per campaign, not a fact
+# about the code. Change a weight here and re-score - no redeploy.
+#
+# Condition vocabulary (see app/scoring/engine.py):
+#   fact:      name of a LeadFacts attribute
+#   equals:    the fact's value must equal this
+#   present:   true  -> the fact must be known (verified or inferred)
+#              false -> the fact must be unverified or absent
+#   verified:  true  -> only a directly sourced fact counts
+#   signal:    name of a SiteSignals attribute
+#   lt / gte:  numeric comparison against a signal
+#
+# A rule whose condition cannot be evaluated simply does not fire. Nothing is
+# awarded on a guess.
+
+version: 1
+max_score: 100
+
+rules:
+  - id: no_online_booking
+    points: 30
+    reason: "No online booking system found on their website"
+    when:
+      fact: has_online_booking
+      equals: false
+    # The premise of the product. Weighted highest because it is the actual
+    # sales opening, and because it is the hardest signal to establish - it
+    # requires having reached and read the site.
+
+  - id: active_instagram
+    points: 15
+    reason: "Active Instagram presence"
+    when:
+      fact: instagram
+      present: true
+
+  - id: outdated_website
+    points: 15
+    reason: "Website looks dated and is likely due a rebuild"
+    when:
+      signal: copyright_year
+      lt: 2023
+    # A stale copyright year is the most reliable cheap proxy for a site
+    # nobody has touched in years.
+
+  - id: not_mobile_friendly
+    points: 10
+    reason: "Website is not mobile-responsive"
+    when:
+      signal: mobile_friendly
+      equals: false
+
+  - id: website_exists
+    points: 10
+    reason: "Has a website to work with"
+    when:
+      fact: website
+      present: true
+
+  - id: contactable
+    points: 10
+    reason: "Direct contact details are available"
+    when:
+      any:
+        - fact: phone
+          verified: true
+        - fact: email
+          verified: true
+
+  - id: category_match
+    points: 10
+    reason: "Matches the requested business category"
+    when:
+      fact: category
+      present: true
+
+  # Retained deliberately although it can never fire under the zero-cost
+  # constraint: no free source carries Google review counts, so the fact
+  # stays unverified and the rule stays silent. Documenting the gap is more
+  # honest than deleting the rule and pretending reviews were never wanted.
+  - id: strong_reviews
+    points: 10
+    reason: "Well reviewed on Google"
+    when:
+      fact: google_review_count
+      verified: true
