@@ -23,7 +23,6 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
-    BigInteger,
     CheckConstraint,
     DateTime,
     Enum,
@@ -36,10 +35,9 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin, uuid_pk
+from app.db.base import AutoIncrementBigInt, Base, JSONColumn, TimestampMixin, uuid_pk
 
 
 class TaskStatus(enum.StrEnum):
@@ -97,7 +95,7 @@ class Task(Base, TimestampMixin):
     # must-have criteria, target count. Written once the agent has parsed the
     # request, so the UI can show *how it was understood* - the first place a
     # disappointing result set is usually explained.
-    requirements: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    requirements: Mapped[dict[str, Any] | None] = mapped_column(JSONColumn, nullable=True)
 
     target_count: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
 
@@ -187,13 +185,13 @@ class Lead(Base, TimestampMixin):
     dedup_key: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # dict[field_name -> Field]; see app/schemas/provenance.py (M2).
-    fields: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    fields: Mapped[dict[str, Any]] = mapped_column(JSONColumn, nullable=False, default=dict)
 
     score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Per-rule contributions, so the UI can show *why* the score is what it is
     # rather than presenting an unexplained number.
     score_breakdown: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSONB, nullable=False, default=list
+        JSONColumn, nullable=False, default=list
     )
 
     qualification_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -256,7 +254,7 @@ class RunEvent(Base):
     __tablename__ = "run_events"
 
     # BIGSERIAL: monotonic, comparable, and directly usable as an SSE event id.
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(AutoIncrementBigInt, primary_key=True, autoincrement=True)
 
     task_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
@@ -267,7 +265,7 @@ class RunEvent(Base):
 
     # Event discriminator, e.g. "task.started", "tool.called", "lead.saved".
     type: Mapped[str] = mapped_column(String(64), nullable=False)
-    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONColumn, nullable=False, default=dict)
 
     # Milliseconds since the run began. Replay uses this to reproduce the
     # original pacing, so a recorded demo feels like a live one.

@@ -5,8 +5,22 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, MetaData, func
+from sqlalchemy import JSON, BigInteger, DateTime, Integer, MetaData, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+# Postgres is the production database and JSONB is what we want there -
+# indexable, binary-encoded, queryable. But binding the schema to it means the
+# test suite needs a live Postgres, which makes the fast tests depend on
+# infrastructure and stops them running anywhere a server is not already set
+# up. A dialect variant gives JSONB in production and portable JSON elsewhere,
+# so the whole suite runs in-memory on SQLite with no setup at all.
+JSONColumn = JSON().with_variant(JSONB(), "postgresql")
+
+# SQLite only auto-increments an INTEGER PRIMARY KEY - a BIGINT column silently
+# stops generating values. The variant keeps BIGSERIAL in Postgres, which the
+# SSE Last-Event-ID depends on for monotonic ids.
+AutoIncrementBigInt = BigInteger().with_variant(Integer, "sqlite")
 
 # Explicit constraint naming. Without this, Alembic autogenerate produces
 # migrations containing unnamed constraints, which later cannot be dropped by

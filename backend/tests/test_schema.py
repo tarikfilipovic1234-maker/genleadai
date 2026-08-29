@@ -88,11 +88,30 @@ def test_deleting_a_task_cascades_to_its_children() -> None:
         assert all(fk.ondelete == "CASCADE" for fk in fks), f"{table}.{column} is not CASCADE"
 
 
-def test_provenance_fields_are_jsonb_not_flat_columns() -> None:
-    """The design depends on this: a bare string cannot carry a source."""
+def test_provenance_fields_are_jsonb_on_postgres() -> None:
+    """The design depends on this: a bare string cannot carry a source.
+
+    The column is a dialect variant so the suite can run on SQLite, so the
+    check resolves the type against the Postgres dialect rather than reading
+    the generic one - otherwise the variant could silently lose JSONB in
+    production and this test would still pass.
+    """
+    from sqlalchemy.dialects import postgresql
     from sqlalchemy.dialects.postgresql import JSONB
 
-    assert isinstance(models.Lead.__table__.c.fields.type, JSONB)
+    resolved = models.Lead.__table__.c.fields.type.dialect_impl(postgresql.dialect())
+
+    assert isinstance(resolved, JSONB)
     # These must NOT be promoted to plain columns.
     for leaked in ("website", "phone", "email", "instagram"):
         assert leaked not in models.Lead.__table__.c
+
+
+def test_run_event_ids_are_bigserial_on_postgres() -> None:
+    """SSE reconnect depends on a monotonic id that will not run out."""
+    from sqlalchemy import BigInteger
+    from sqlalchemy.dialects import postgresql
+
+    resolved = models.RunEvent.__table__.c.id.type.dialect_impl(postgresql.dialect())
+
+    assert isinstance(resolved, BigInteger)

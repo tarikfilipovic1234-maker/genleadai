@@ -45,6 +45,8 @@ venv/
 .pytest_cache/
 .ruff_cache/
 backend/.cache/
+# Local SQLite databases used for manual end-to-end checks.
+*.db
 
 # vercel
 .vercel
