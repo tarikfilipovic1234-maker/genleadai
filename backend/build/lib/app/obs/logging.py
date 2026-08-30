@@ -19,32 +19,6 @@ import structlog
 from app.config import Settings
 
 
-def _colours_available() -> bool:
-    """Whether ANSI colour is both possible and wanted.
-
-    Two failures this avoids, both found by installing the base dependency
-    set into a clean environment:
-
-      structlog's ConsoleRenderer raises SystemError - not a warning, a hard
-      crash on import - when asked for colours on Windows without colorama.
-      That package arrives only as a transitive test dependency, so the crash
-      appears exclusively in a production-shaped install.
-
-      When output is redirected, as it is on every hosting platform, colour
-      codes are captured as literal escape sequences and make the logs harder
-      to read rather than easier.
-    """
-    if not sys.stdout.isatty():
-        return False
-    if sys.platform != "win32":
-        return True
-    try:
-        import colorama  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
 def configure_logging(settings: Settings) -> None:
     """Install the structlog + stdlib pipeline. Idempotent."""
     level = getattr(logging, settings.log_level.upper(), logging.INFO)
@@ -66,7 +40,7 @@ def configure_logging(settings: Settings) -> None:
         renderer: structlog.types.Processor = structlog.processors.JSONRenderer()
         shared.append(structlog.processors.format_exc_info)
     else:
-        renderer = structlog.dev.ConsoleRenderer(colors=_colours_available())
+        renderer = structlog.dev.ConsoleRenderer(colors=True)
 
     structlog.configure(
         processors=[*shared, renderer],
