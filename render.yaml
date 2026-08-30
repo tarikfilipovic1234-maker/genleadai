@@ -1,0 +1,57 @@
+# Render blueprint for the backend.
+#
+# Deployed on the free tier, which shapes two decisions:
+#
+#   The native Python runtime rather than the Dockerfile. Free-tier builds are
+#   slow and a container build repeats work Render already does natively; the
+#   Dockerfile stays in the repository for local Compose and for anyone
+#   deploying elsewhere.
+#
+#   Migrations run in the build command. Render's pre-deploy hook is a paid
+#   feature, and running them at application startup would race if the service
+#   ever ran more than one instance.
+#
+# The service installs the base dependency set only - not the [agent] extra -
+# so the Claude client libraries are absent from the deployed image and it
+# cannot call a model even if it were reconfigured to try.
+
+services:
+  - type: web
+    name: leadgen-api
+    runtime: python
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    buildCommand: pip install --upgrade pip && pip install . && alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+
+      - key: APP_ENV
+        value: production
+
+      # Serves recorded runs. app/config.py refuses to start with the live
+      # runtime in production, and the agent libraries are not installed here.
+      - key: AGENT_RUNTIME
+        value: replay
+
+      - key: LOG_FORMAT
+        value: json
+
+      # Paste the Neon connection string verbatim; app/config.py rewrites the
+      # scheme and strips the libpq query parameters asyncpg rejects.
+      - key: DATABASE_URL
+        sync: false
+
+      # The deployed frontend's origin, e.g.
+      # ["https://ai-lead-generation-agent.vercel.app"]
+      - key: CORS_ORIGINS
+        sync: false
+
+      # Identify the deployment to OpenStreetMap's services, per their usage
+      # policy. Unused in replay mode, set so a later live deployment is not
+      # anonymous.
+      - key: HTTP_USER_AGENT
+        sync: false
