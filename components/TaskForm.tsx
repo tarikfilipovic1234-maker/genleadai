@@ -112,8 +112,17 @@ export function TaskForm({
       {liveDisabled && (
         <p className="border-t border-line bg-raised/50 px-5 py-2.5 text-[10px] leading-relaxed text-ink-faint">
           This deployment replays a recorded run against real Sarajevo
-          businesses — it holds no API credentials and calls no model. Clone the
-          repository to run the agent live.
+          businesses — the events, timings, leads and sources are all from an
+          actual run. It holds no API credentials and the Claude libraries are
+          not installed, so it cannot call a model. Clone the repository to run
+          the agent live.
+          {/* The backend sleeps on the free tier, so the first request after
+              an idle period takes about a minute. Saying so turns a broken-
+              looking wait into an expected one. */}
+          <span className="mt-1 block">
+            The backend sleeps when idle — the first run after a quiet spell
+            can take up to a minute to wake.
+          </span>
         </p>
       )}
 

@@ -15,21 +15,34 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30",
     "alembic>=1.14",
-    # data providers
+    # data providers and enrichment
     "httpx>=0.27",
-    # agent
-    "claude-agent-sdk>=0.1.0",
-    # Used only by the hand-written Messages API runtime (AGENT_RUNTIME=manual).
-    "anthropic>=1.0",
+    "trafilatura>=1.12",
+    "selectolax>=0.3.21",
+    "pyyaml>=6.0",
     # logging
     "structlog>=24.4",
 ]
 
 [project.optional-dependencies]
+# Everything needed to actually call a model. Deliberately optional: the
+# deployed instance serves recorded runs and installs the base set only, so it
+# is not merely configured to avoid calling a model - it is incapable of it,
+# because the client libraries are not present. That is the third independent
+# mechanism enforcing the same invariant, alongside the config guard and the
+# container image omitting Node.
+agent = [
+    "claude-agent-sdk>=0.1.0",
+    # Used only by the hand-written Messages API runtime (AGENT_RUNTIME=manual).
+    "anthropic>=1.0",
+]
+
 dev = [
+    "genleadai-backend[agent]",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-timeout>=2.3",
+    "aiosqlite>=0.20",
     "ruff>=0.8",
 ]
 
