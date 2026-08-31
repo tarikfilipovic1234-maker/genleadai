@@ -122,6 +122,48 @@ class TestCorsOrigins:
             Settings(agent_runtime="replay", _env_file=None)
 
 
+class TestProductionDatabase:
+    def test_a_missing_database_url_is_named_not_inferred(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unset DATABASE_URL otherwise falls back to the localhost default
+        and surfaces as ConnectionRefusedError on 127.0.0.1:5432 - a stack
+        trace describing the symptom and never the cause."""
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+
+        with pytest.raises(ConfigurationError, match="DATABASE_URL is not set"):
+            Settings(app_env="production", agent_runtime="replay", _env_file=None)
+
+    @pytest.mark.parametrize("host", ["localhost", "127.0.0.1"])
+    def test_a_local_database_is_refused_in_production(self, host: str) -> None:
+        with pytest.raises(ConfigurationError, match="no local Postgres"):
+            Settings(
+                app_env="production",
+                agent_runtime="replay",
+                database_url=f"postgresql+asyncpg://u:p@{host}:5432/db",
+                _env_file=None,
+            )
+
+    def test_a_local_database_is_fine_outside_production(self) -> None:
+        settings = Settings(
+            app_env="local",
+            agent_runtime="replay",
+            database_url="postgresql+asyncpg://u:p@localhost:5432/db",
+            _env_file=None,
+        )
+
+        assert "localhost" in settings.database_url
+
+    def test_migrations_run_at_start_not_at_build(self) -> None:
+        """Building produces an artefact and must not require a reachable
+        database; otherwise a configuration mistake fails the build."""
+        blueprint = yaml.safe_load((REPO / "render.yaml").read_text(encoding="utf-8"))
+        service = blueprint["services"][0]
+
+        assert "alembic" not in service["buildCommand"]
+        assert service["startCommand"].startswith("alembic upgrade head &&")
+
+
 class TestProductionInvariant:
     """The public deployment must not be able to call a model.
 
@@ -190,7 +232,12 @@ print("OK")
             capture_output=True,
             text=True,
             cwd=BACKEND,
-            env={**os.environ, "AGENT_RUNTIME": "replay", "APP_ENV": "production"},
+            env={
+                **os.environ,
+                "AGENT_RUNTIME": "replay",
+                "APP_ENV": "production",
+                "DATABASE_URL": "postgresql://u:p@db.example.com/app",
+            },
             timeout=120,
         )
 

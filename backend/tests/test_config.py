@@ -43,7 +43,14 @@ def test_sdk_runtime_is_refused_in_production(monkeypatch: pytest.MonkeyPatch) -
 def test_replay_runtime_is_allowed_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-    settings = Settings(agent_runtime="replay", app_env="production", _env_file=None)
+    settings = Settings(
+        agent_runtime="replay",
+        app_env="production",
+        # A production deployment must name a real database; see
+        # test_deployment.TestProductionDatabase.
+        database_url="postgresql://u:p@db.example.com/app",
+        _env_file=None,
+    )
 
     assert settings.agent_runtime == "replay"
 

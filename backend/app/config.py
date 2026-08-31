@@ -36,6 +36,10 @@ class ConfigurationError(RuntimeError):
     """Raised when the environment is configured in a way we refuse to run."""
 
 
+def _is_local_database(url: str) -> bool:
+    return any(host in url for host in ("localhost", "127.0.0.1", "::1"))
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -207,7 +211,21 @@ class Settings(BaseSettings):
                     "in production; run the live agent locally."
                 )
 
-        elif self.agent_runtime == "manual" and not os.environ.get("ANTHROPIC_API_KEY"):
+        if self.app_env == "production" and _is_local_database(self.database_url):
+            # Without this, an unset DATABASE_URL silently falls back to the
+            # localhost default and surfaces as ConnectionRefusedError on
+            # 127.0.0.1:5432 - a stack trace that describes the symptom and
+            # says nothing about the cause. A deployed service has no local
+            # Postgres, so this configuration is always a mistake.
+            raise ConfigurationError(
+                "DATABASE_URL is not set (or points at localhost) while "
+                "APP_ENV=production.\n"
+                "A deployed instance has no local Postgres. Set DATABASE_URL to your "
+                "managed database's connection string - it can be pasted exactly as "
+                "the provider gives it."
+            )
+
+        if self.agent_runtime == "manual" and not os.environ.get("ANTHROPIC_API_KEY"):
             # The mirror image of rule 1. The hand-written loop talks to the
             # Messages API, which bills Console credits and cannot use a
             # subscription. Starting without a key would fail on the first

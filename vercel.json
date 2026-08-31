@@ -1,0 +1,18 @@
+{
+  "services": {
+    "leadgen-api": {
+      "root": "backend",
+      "entrypoint": "app.main:app",
+      "buildCommand": "pip install --upgrade pip && pip install . && alembic upgrade head"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": {
+        "type": "service",
+        "service": "leadgen-api"
+      }
+    }
+  ]
+}
