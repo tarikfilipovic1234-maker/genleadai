@@ -1,0 +1,22 @@
+# Vercel builds the Next.js application at the repository root and nothing
+# else. Without this it also discovers backend/ and render.yaml, treats the
+# blueprint's service definition as something to build, and runs the backend's
+# install and migration commands inside a build container with no database -
+# failing with a refused connection to 127.0.0.1:5432 that looks like a
+# database problem and is actually a "what am I building" problem.
+#
+# The backend deploys separately to Render. Excluding it here also keeps the
+# upload small: backend/ carries fixtures, a virtualenv and caches that the
+# frontend build has no use for.
+
+backend/
+render.yaml
+docker-compose.yml
+
+# Local artefacts that should never reach a build.
+*.db
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.cache/
