@@ -71,6 +71,57 @@ class TestDatabaseUrlNormalisation:
         assert settings.database_url == url
 
 
+class TestCorsOrigins:
+    """A list-typed setting must be written as JSON in the environment by
+    default, so pasting a bare URL fails during source parsing - before any
+    validator runs - with an error naming the field but not the reason. Every
+    reasonable spelling is accepted instead."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ('["https://a.vercel.app"]', ["https://a.vercel.app"]),
+            (
+                '["https://a.vercel.app", "http://localhost:3000"]',
+                ["https://a.vercel.app", "http://localhost:3000"],
+            ),
+            ("https://a.vercel.app", ["https://a.vercel.app"]),
+            (
+                "https://a.vercel.app,http://localhost:3000",
+                ["https://a.vercel.app", "http://localhost:3000"],
+            ),
+            (
+                "https://a.vercel.app, http://localhost:3000",
+                ["https://a.vercel.app", "http://localhost:3000"],
+            ),
+            ("", []),
+        ],
+    )
+    def test_every_reasonable_spelling_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str, expected: list[str]
+    ) -> None:
+        monkeypatch.setenv("CORS_ORIGINS", raw)
+
+        assert Settings(agent_runtime="replay", _env_file=None).cors_origins == expected
+
+    @pytest.mark.parametrize("raw", ["https://a.vercel.app/", '["https://a.vercel.app/"]'])
+    def test_a_trailing_slash_is_removed(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+        """The browser sends the origin with no path, so a configured value
+        with a trailing slash never matches and every request is blocked for
+        reasons the CORS error does not explain."""
+        monkeypatch.setenv("CORS_ORIGINS", raw)
+
+        assert Settings(agent_runtime="replay", _env_file=None).cors_origins == [
+            "https://a.vercel.app"
+        ]
+
+    def test_malformed_json_explains_itself(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CORS_ORIGINS", '["https://a.vercel.app"')
+
+        with pytest.raises(Exception, match="comma-separated"):
+            Settings(agent_runtime="replay", _env_file=None)
+
+
 class TestProductionInvariant:
     """The public deployment must not be able to call a model.
 
