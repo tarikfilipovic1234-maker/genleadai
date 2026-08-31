@@ -1,18 +1,7 @@
 {
-  "services": {
-    "leadgen-api": {
-      "root": "backend",
-      "entrypoint": "app.main:app",
-      "buildCommand": "pip install --upgrade pip && pip install . && alembic upgrade head"
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": {
-        "type": "service",
-        "service": "leadgen-api"
-      }
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "installCommand": "npm install",
+  "outputDirectory": ".next"
 }
