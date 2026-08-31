@@ -7,9 +7,13 @@
 #   Dockerfile stays in the repository for local Compose and for anyone
 #   deploying elsewhere.
 #
-#   Migrations run in the build command. Render's pre-deploy hook is a paid
-#   feature, and running them at application startup would race if the service
-#   ever ran more than one instance.
+#   Migrations run in the start command, not the build. Building is about
+#   producing an artefact and should not depend on a reachable database:
+#   putting them in the build makes an unreachable or unconfigured database a
+#   *build* failure, reported as a Python stack trace rather than as the
+#   configuration problem it is. The free tier runs a single instance, so
+#   there is no concurrent-migration race to avoid; a multi-instance service
+#   would need a pre-deploy hook, which is a paid feature.
 #
 # The service installs the base dependency set only - not the [agent] extra -
 # so the Claude client libraries are absent from the deployed image and it
@@ -22,8 +26,8 @@ services:
     plan: free
     region: frankfurt
     rootDir: backend
-    buildCommand: pip install --upgrade pip && pip install . && alembic upgrade head
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install --upgrade pip && pip install .
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
