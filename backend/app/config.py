@@ -10,13 +10,14 @@ rules about model access. See the docstring there.
 
 from __future__ import annotations
 
+import json
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Which implementation of AgentRuntime we run. See app/agent/runtime.py (M6).
 #   sdk     - Claude Agent SDK on your subscription. Local development only.
@@ -130,7 +131,42 @@ class Settings(BaseSettings):
     http_use_cache: bool = True
 
     # --- http ----------------------------------------------------------
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    # NoDecode turns off pydantic-settings' automatic JSON decoding for this
+    # field. By default a list-typed setting must be written as a JSON array
+    # in the environment, so pasting a bare URL - the obvious thing to do -
+    # fails during source parsing, before any validator runs, with an error
+    # that names the field but not the reason. The validator below accepts
+    # every reasonable spelling instead.
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:3000"]
+    )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_origins(cls, value: Any) -> list[str]:
+        """Accept a JSON array, a comma-separated list, or a single origin."""
+        if value is None or isinstance(value, list):
+            return value or []
+
+        text = str(value).strip()
+        if not text:
+            return []
+
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"CORS_ORIGINS looks like JSON but could not be parsed: {exc}. "
+                    'Use ["https://example.com"] or a comma-separated list.'
+                ) from exc
+            return [str(item).strip().rstrip("/") for item in parsed]
+
+        # A trailing slash makes an origin fail to match: the browser sends
+        # "https://app.vercel.app" with no path, so a configured value with
+        # one never compares equal and every request is blocked by CORS for
+        # reasons the error message does not explain.
+        return [part.strip().rstrip("/") for part in text.split(",") if part.strip()]
 
     # ------------------------------------------------------------------
     @model_validator(mode="after")

@@ -46,7 +46,8 @@ services:
         sync: false
 
       # The deployed frontend's origin, e.g.
-      # ["https://ai-lead-generation-agent.vercel.app"]
+      #   https://genleadai.vercel.app
+      # A bare URL, a comma-separated list, or a JSON array all work.
       - key: CORS_ORIGINS
         sync: false
 
