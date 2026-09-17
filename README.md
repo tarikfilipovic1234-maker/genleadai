@@ -1,4 +1,4 @@
-# Lead Research Agent
+# GenLeadAI — Lead Research Agent
 
 An AI agent that researches real businesses against real sources, scores them
 as sales leads, and **records what it could not verify** instead of guessing.
@@ -16,8 +16,13 @@ Every field it collects carries its provenance: **verified** (read from a named
 source), **inferred** (the model's judgement from evidence it saw), or
 **unverified** (looked for, not confirmed).
 
-<!-- Replace with your own capture: see "Screenshots" below. -->
-<!-- ![Dashboard](docs/screenshots/dashboard.png) -->
+**Live demo: <https://genleadai.vercel.app>**
+
+The hosted demo replays a recorded run (Sarajevo beauty salons) rather than
+calling Claude live: agent runs need a Claude subscription through the Agent
+SDK, so a public deploy cannot make them. Everything after the model — scoring,
+provenance, the claim checker, outreach — runs for real against the recorded
+facts. The UI states this while it replays.
 
 ---
 
@@ -297,18 +302,6 @@ python -m app.cli score --profile no_online_booking
 # Regenerate outreach with structured outputs
 python -m app.cli outreach --limit 3
 ```
-
----
-
-## Screenshots
-
-Capture these from a local run and drop them in `docs/screenshots/`:
-
-| File | What to show |
-|---|---|
-| `dashboard.png` | Lead list with scores and provenance bars |
-| `transcript.png` | The live agent transcript mid-run |
-| `lead-detail.png` | Evidence panel — facts, provenance chips, sources |
 
 ---
 
