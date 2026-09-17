@@ -59,3 +59,8 @@ next-env.d.ts
 # are already covered above, and a second ".env*" this far down would override
 # the "!.env.example" exception - the last matching rule wins - silently
 # un-committing the templates that document every environment variable.
+
+# Python build artifacts (any directory)
+build/
+dist/
+*.egg-info/
